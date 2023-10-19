@@ -60,7 +60,7 @@ def batch_inputs(input_data, num_completions, batch_size):
             if len(batch) == batch_size:
                 yield batch
                 batch = [ ]
-    if len(batch) == 0:
+    if len(batch) > 0:
         yield batch
 
 def prompt_template(entry):
@@ -82,7 +82,7 @@ def main():
 
     
     input_data = pd.read_json(args.input, lines=True)
-    input_data = input_data[input_data["approx_token_count"] < args.max_tokens]
+    input_data = input_data[input_data["approx_token_count"] <= args.max_tokens]
     input_data = input_data.to_dict(orient="records")
     batched_inputs = list(batch_inputs(input_data, args.num_completions, args.batch_size))
     output_data = { item["task_id"]: { 
@@ -103,8 +103,8 @@ def main():
             stop=["\nclass", "\ndef", "\n#", "\nif", "\nprint"]
         )
         for idx, completion in enumerate(completions):
-            benchmark_name = batch[idx]["benchmark_name"]
-            output_data[benchmark_name]["completions"].append(completion)
+            task_id = batch[idx]["task_id"]
+            output_data[task_id]["completions"].append(completion)
 
     pd.DataFrame(output_data.values()).to_json(args.output, orient="records", lines=True)
 
