@@ -63,6 +63,11 @@ def batch_inputs(input_data, num_completions, batch_size):
     if len(batch) == 0:
         yield batch
 
+def prompt_template(entry):
+    p = entry["prompt"]
+    f = entry["target_function_name"]
+    return f"{p}\n\n# A complete list of assertions to test {f}:\nassert {f}("
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True)
@@ -77,16 +82,16 @@ def main():
     
     input_data = pd.read_json(args.input, lines=True).to_dict(orient="records")
     batched_inputs = list(batch_inputs(input_data, args.num_completions, args.batch_size))
-    output_data = { item["benchmark_name"]: { 
-        "benchmark_name": item["benchmark_name"], 
-        "canonical_prompt": item["canonical_prompt"], 
-        "target_tests": item["target_tests"],
+    output_data = { item["task_id"]: { 
+        "task_id": item["task_id"], 
+        "target_function": item["target_function"], 
+        "approx_token_count": item["approx_token_count"],
         "completions": [] } for item in input_data 
     }
 
 
     for batch in tqdm(batched_inputs, desc="Batch"):
-        prompts = [entry["canonical_prompt"] for entry in batch]
+        prompts = [prompt_template(entry) for entry in batch]
         completions = vllm.completions(
             prompts,
             max_tokens=8100,
