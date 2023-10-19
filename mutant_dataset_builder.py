@@ -50,9 +50,6 @@ for path in Path(args.path).glob("**/*.results.json.gz"):
             correct = trim_prog(r["program"], lang)
             break
 
-    if correct is None:
-        continue
-
     ex['correct'] = correct
 
     # find all unique incorrect
