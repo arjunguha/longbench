@@ -66,7 +66,7 @@ def batch_inputs(input_data, num_completions, batch_size):
 def prompt_template(entry):
     p = entry["prompt"]
     f = entry["target_function_name"]
-    return f"{p}\n\n# A complete list of assertions to test {f}:\nassert {f}("
+    return f"{p}\n\n# A complete test suite for {f}:\ndef test_{f}():\n    assert {f}("
 
 def main():
     parser = argparse.ArgumentParser()
