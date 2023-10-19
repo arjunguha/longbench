@@ -90,6 +90,7 @@ def main():
         "task_id": item["task_id"], 
         "target_function": item["target_function"], 
         "approx_token_count": item["approx_token_count"],
+        "mutants": item["mutants"],
         "completions": [] } for item in input_data 
     }
 
