@@ -76,9 +76,10 @@ def main():
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--max-tokens", type=int, required=True)
+    parser.add_argument("--num_gpus", type=int, default=1)
     args = parser.parse_args()
 
-    vllm = VLLM(args.model_name, None)
+    vllm = VLLM(args.model_name, None, num_gpus=args.num_gpus)
 
     
     input_data = pd.read_json(args.input, lines=True)
