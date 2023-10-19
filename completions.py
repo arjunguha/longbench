@@ -88,7 +88,8 @@ def main():
     batched_inputs = list(batch_inputs(input_data, args.num_completions, args.batch_size))
     output_data = { item["task_id"]: { 
         "task_id": item["task_id"], 
-        "target_function": item["target_function"], 
+        "target_function": item["target_function"],
+        "target_function_name": item["target_function_name"], 
         "approx_token_count": item["approx_token_count"],
         "mutants": item["mutants"],
         "completions": [] } for item in input_data 

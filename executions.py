@@ -18,10 +18,11 @@ def run(py_program: str):
 
 
 def process_problem(executor, problem: dict):
-    prefix = problem["canonical_prompt"]
-    suffix = "\n\n" + problem["target_tests"]
+    # TODO(arjun): Make the prefix and suffix configurable and shared with completions.py
+    prefix = problem["target_function"] + f"\n\ndef test_suite():\n    assert {problem['target_function_name']}("
+    suffix = "\n\ntest_suite()"
     executions = executor.map(lambda c: run(prefix + c + suffix), problem["completions"])
-    return { "benchmark_name": problem["benchmark_name"], "executions": list(executions) }
+    return { "task_id": problem["task_id"], "executions": list(executions) }
     
 
 def main_with_args(input: Path, output: Path):
