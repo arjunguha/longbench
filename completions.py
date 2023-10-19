@@ -75,12 +75,15 @@ def main():
     parser.add_argument("--num-completions", type=int, required=True)
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--batch-size", type=int, required=True)
+    parser.add_argument("--max-tokens", type=int, required=True)
     args = parser.parse_args()
 
     vllm = VLLM(args.model_name, None)
 
     
-    input_data = pd.read_json(args.input, lines=True).to_dict(orient="records")
+    input_data = pd.read_json(args.input, lines=True)
+    input_data = input_data[input_data["approx_token_count"] < args.max_tokens]
+    input_data = input_data.to_dict(orient="records")
     batched_inputs = list(batch_inputs(input_data, args.num_completions, args.batch_size))
     output_data = { item["task_id"]: { 
         "task_id": item["task_id"], 
@@ -94,7 +97,7 @@ def main():
         prompts = [prompt_template(entry) for entry in batch]
         completions = vllm.completions(
             prompts,
-            max_tokens=8100,
+            max_tokens=args.max_tokens,
             temperature=0.2,
             top_p=0.95,
             stop=["\nclass", "\ndef", "\n#", "\nif", "\nprint"]

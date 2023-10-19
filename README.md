@@ -4,13 +4,13 @@
 2. Use completions.py to geenerate completions.
 
    ```
-   python3 completions.py --input test2code_long_context.jsonl --output completions.jsonl --model-name /home/arjun/models/starcoderbase-1b --batch-size 50 --num-completions 20
+   python3 completions.py --input benchmark.jsonl --output completions.jsonl --model-name /home/arjun/models/starcoderbase --batch-size 50 --num-completions 1 --max-tokens 8192
    ```
 
-3. Use executions.py to execution completions.
+3. Use executions.py to execution completions. (Needs an update.)
 
     ```
     python3 executions.py --input completions.jsonl --output executions.jsonl
     ```
 
-4. Use pass1.ipynb to look at the results.
+4. Use pass1.ipynb to look at the results.  (Needs an update.)
