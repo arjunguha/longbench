@@ -13,7 +13,7 @@ def run(py_program: str):
     with tempfile.NamedTemporaryFile("w", suffix=".py") as f:
         f.write(py_program)
         f.flush()
-        result = bounded_subprocess.run(["python3", f.name], timeout_seconds=10)
+        result = bounded_subprocess.run(["python3", f.name], timeout_seconds=30)
         return { "program": py_program, "stdout": result.stdout, "stderr": result.stderr, "exit_code": result.exit_code }
 
 
