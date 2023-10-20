@@ -1,10 +1,10 @@
 
 import argparse
-from typing import List
 from tqdm import tqdm
 import pandas as pd
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Pool
 import bounded_subprocess
 import tempfile
 import json
@@ -29,7 +29,7 @@ def main_with_args(input: Path, output: Path):
     problems = pd.read_json(input, lines=True).to_dict(orient="records")
     with ThreadPoolExecutor() as executor:
         with output.open("w") as f:
-            for item in tqdm(executor.map(lambda p: process_problem(executor, p), problems), total=len(problems), desc="Problem"):
+            for item in tqdm(map(lambda p: process_problem(executor, p), problems), total=len(problems), desc="Problem"):
                 f.write(json.dumps(item) + "\n")
         
 
