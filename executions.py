@@ -31,14 +31,21 @@ def run(py_program: str, mutants: List[str]):
 
     return final
 
+def clip_completion(completion: str):
+    lines = completion.split("\n")
+    print(f"Clipped completion to {len(lines)} -> 10 lines")
+    lines = lines[:10]
+    
+    return "\n".join(lines)
 
 def process_problem(executor, problem: dict):
     # TODO(arjun): Make the prefix and suffix configurable and shared with completions.py
     prefix_suf = f"\n\ndef test_suite():\n    assert {problem['target_function_name']}("
     prefix = problem["target_function"] + prefix_suf
     suffix = "\n\ntest_suite()"
+    completions = [ clip_completion(c) for c in problem["completions"] ]
     executions = executor.map(lambda c: run(
-        prefix + c + suffix, list(map(lambda m: m + "\n" + prefix_suf + c + suffix, problem["mutants"]))), problem["completions"])
+        prefix + c + suffix, list(map(lambda m: m + "\n" + prefix_suf + c + suffix, problem["mutants"]))), completions)
     return {"task_id": problem["task_id"], "executions": list(executions)}
 
 
