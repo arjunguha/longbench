@@ -76,6 +76,8 @@ def main():
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--max-tokens", type=int, required=True)
+    parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--num_gpus", type=int, default=1)
     args = parser.parse_args()
 
@@ -101,8 +103,8 @@ def main():
         completions = vllm.completions(
             prompts,
             max_tokens=args.max_tokens,
-            temperature=0.2,
-            top_p=0.95,
+            temperature=args.temperature,
+            top_p=args.top_p,
             stop=["\nclass", "\ndef", "\n#", "\nif", "\nprint"]
         )
         for idx, completion in enumerate(completions):
