@@ -1,10 +1,9 @@
 import argparse
-import json
 from typing import List
 from vllm import LLM, SamplingParams
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from tqdm import tqdm
-import math
 import pandas as pd
 from pathlib import Path
 
@@ -29,13 +28,13 @@ def stop_at_stop_token(decoded_string, stop_tokens):
 # Copied from MultiPL-E
 class VLLM:
     def __init__(self, name, revision, tokenizer_name=None, num_gpus=1):
-        assert revision is None, "TODO: implement revision"
         dtype = "float16"
         if torch.cuda.is_bf16_supported():
             dtype = "bfloat16"
         self.model = LLM(
             model=name,
             tokenizer=tokenizer_name,
+            revision=revision,
             dtype=dtype,
             trust_remote_code=True,
             tensor_parallel_size=num_gpus,
@@ -52,21 +51,78 @@ class VLLM:
         return [stop_at_stop_token(o.outputs[0].text, stop) for o in outputs]
 
 
+class Model:
+    def __init__(self, name, revision, tokenizer_name=None):
+        dtype = torch.float16
+        if torch.cuda.is_bf16_supported():
+            dtype = torch.bfloat16
+        self.model = AutoModelForCausalLM.from_pretrained(
+            name, revision=revision, torch_dtype=dtype, trust_remote_code=True).cuda()
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer_name or name, revision=revision, padding_side="left", trust_remote_code=True)
+        self.tokenizer.pad_token = "<|endoftext|>"
+
+    def completion_tensors(
+        self,
+        prompts: list,
+        max_length: int,
+        temperature: float,
+        top_p: float,
+    ):
+        inputs = self.tokenizer(
+            prompts, padding=True, return_tensors="pt", return_token_type_ids=False).to("cuda")
+        with torch.no_grad():
+            output = self.model.generate(
+                **inputs,
+                do_sample=True,
+                use_cache=True,
+                top_p=top_p,
+                temperature=temperature,
+                max_length=max_length,
+                pad_token_id=self.tokenizer.pad_token_id
+            )
+        return output
+
+    def decode_single_output(self, output_tensor, prompt):
+        detok_hypo_str = self.tokenizer.decode(
+            output_tensor, clean_up_tokenization_spaces=False, skip_special_tokens=True,
+        )
+        return detok_hypo_str[len(prompt):]
+
+    def completions(
+        self, prompts: List[str], max_tokens: int, temperature: float, top_p, stop
+    ):
+        prompts = [prompt.strip() for prompt in prompts]
+        output_tensors = self.completion_tensors(
+            prompts,
+            max_tokens,
+            temperature,
+            top_p,
+        )
+        return [
+            stop_at_stop_token(self.decode_single_output(
+                output_tensor, prompt), stop + ["<|endoftext|>"])
+            for (prompt, output_tensor) in zip(prompts, output_tensors)
+        ]
+
+
 def batch_inputs(input_data, num_completions, batch_size):
-    batch = [ ]
+    batch = []
     for item in input_data:
         for i in range(num_completions):
             batch.append(item)
             if len(batch) == batch_size:
                 yield batch
-                batch = [ ]
+                batch = []
     if len(batch) > 0:
         yield batch
+
 
 def prompt_template(entry):
     p = entry["prompt"]
     f = entry["target_function_name"]
     return f"{p}\n\n# A complete test suite for {f}:\ndef test_{f}():\n    assert {f}("
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -74,6 +130,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--num-completions", type=int, required=True)
     parser.add_argument("--model-name", type=str, required=True)
+    parser.add_argument("--engine", type=str, default="vllm")
+    parser.add_argument("--revision", type=str, default=None)
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--max-tokens", type=int, required=True)
     parser.add_argument("--temperature", type=float, default=0.2)
@@ -81,26 +139,31 @@ def main():
     parser.add_argument("--num_gpus", type=int, default=1)
     args = parser.parse_args()
 
-    vllm = VLLM(args.model_name, None, num_gpus=args.num_gpus)
+    if args.engine == "vllm":
+        engine = VLLM(args.model_name, args.revision, num_gpus=args.num_gpus)
+    elif args.engine == "transformers":
+        raise NotImplementedError
+    else:
+        raise ValueError(f"Unknown engine: {args.engine}")
 
-    
     input_data = pd.read_json(args.input, lines=True)
-    input_data = input_data[input_data["approx_token_count"] <= args.max_tokens]
+    input_data = input_data[input_data["approx_token_count"]
+                            <= args.max_tokens]
     input_data = input_data.to_dict(orient="records")
-    batched_inputs = list(batch_inputs(input_data, args.num_completions, args.batch_size))
-    output_data = { item["task_id"]: { 
-        "task_id": item["task_id"], 
+    batched_inputs = list(batch_inputs(
+        input_data, args.num_completions, args.batch_size))
+    output_data = {item["task_id"]: {
+        "task_id": item["task_id"],
         "target_function": item["target_function"],
-        "target_function_name": item["target_function_name"], 
+        "target_function_name": item["target_function_name"],
         "approx_token_count": item["approx_token_count"],
         "mutants": item["mutants"],
-        "completions": [] } for item in input_data 
+        "completions": []} for item in input_data
     }
-
 
     for batch in tqdm(batched_inputs, desc="Batch"):
         prompts = [prompt_template(entry) for entry in batch]
-        completions = vllm.completions(
+        completions = engine.completions(
             prompts,
             max_tokens=args.max_tokens,
             temperature=args.temperature,
@@ -111,7 +174,9 @@ def main():
             task_id = batch[idx]["task_id"]
             output_data[task_id]["completions"].append(completion)
 
-    pd.DataFrame(output_data.values()).to_json(args.output, orient="records", lines=True)
+    pd.DataFrame(output_data.values()).to_json(
+        args.output, orient="records", lines=True)
+
 
 if __name__ == "__main__":
     main()
