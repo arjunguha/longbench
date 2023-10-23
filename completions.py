@@ -51,7 +51,7 @@ class VLLM:
         return [stop_at_stop_token(o.outputs[0].text, stop) for o in outputs]
 
 
-class Model:
+class Transformers:
     def __init__(self, name, revision, tokenizer_name=None):
         dtype = torch.float16
         if torch.cuda.is_bf16_supported():
@@ -142,7 +142,7 @@ def main():
     if args.engine == "vllm":
         engine = VLLM(args.model_name, args.revision, num_gpus=args.num_gpus)
     elif args.engine == "transformers":
-        raise NotImplementedError
+        engine = Transformers(args.model_name, args.revision)
     else:
         raise ValueError(f"Unknown engine: {args.engine}")
 
