@@ -22,12 +22,6 @@ def test_suite_success_rate(executions):
     return sum(1 for execution in executions if execution["exit_code"] == 0) / n
 
 
-def test_suite_success_and_mutant_catch_rate(executions):
-    n = len(executions)
-    if n == 0:
-        return 0
-    return sum(1 for execution in executions if execution["exit_code"] == 0 and mean_mutant_catch_rate(executions) == 1) / n
-
 
 def mean(lst):
     return sum(lst) / len(lst)
@@ -66,15 +60,13 @@ if __name__ == "__main__":
 
     ds = datasets.load_dataset("json", data_files=args.input)["train"]
     bins = bin_problems(ds["task_id"])
-    buf = "Length,Kind,Test Suite Success Rate,Mean Mutant Catch Rate,Test Suite Success and Mean Mutant Catch Rate\n"
+    buf = "Length,Kind,Test Suite Success Rate,Mean Mutant Catch Rate\n"
     for (l, kind), b in bins.items():
         exs = ds.filter(lambda x: x["task_id"] in b)
         avg_test_suite_success_rate = mean(
             list(map(test_suite_success_rate, exs["executions"])))
         avg_mean_mutant_catch_rate = mean(
             list(map(mean_mutant_catch_rate, exs["executions"])))
-        avg_test_suite_success_and_mutant_catch_rate = mean(
-            list(map(test_suite_success_and_mutant_catch_rate, exs["executions"])))
-        buf += f"{l},{kind},{avg_test_suite_success_rate},{avg_mean_mutant_catch_rate},{avg_test_suite_success_and_mutant_catch_rate}\n"
+        buf += f"{l},{kind},{avg_test_suite_success_rate},{avg_mean_mutant_catch_rate}\n"
 
     print(buf)
