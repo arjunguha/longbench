@@ -47,7 +47,7 @@ BENCHMARK_LENGTHS = [4096, 8192, 32768, 65536, 65536 * 2]
 KEY_POSITIONS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 # Hopefully nobody has used this function name before.
 KEY_FUNCTION_NAME = "get_starcoder_hotdog_flavor"
-KEY = '"silkworm"'
+KEY = '"59123"'
 
 
 def generate_functions(
