@@ -62,10 +62,11 @@ def generate_functions(
     )
     functions_dataset = functions_dataset.shuffle()
     for example in functions_dataset:
-        # Not sure this .rstrip() is necessary.
         text = example["content"] + "\n\n"
         token_length = len(tokenizer.encode(text))
-        yield (text, token_length)
+        # We will end up concatenating these functions, and retokenizing the
+        # concatenated string can split tokens.
+        yield (text, token_length + 1)
 
 
 def build_benchmark_item(
@@ -85,7 +86,10 @@ def build_benchmark_item(
 
     # Add functions to the context until we reach the key position
     (function, function_length) = next(function_generator)
-    while context_length + function_length < benchmark_length * key_position:
+    while (
+        context_length + function_length + prompt_suffix_len + expected_completion_len
+        < benchmark_length * key_position
+    ):
         context_chunks.append(function)
         context_length += function_length
         (function, function_length) = next(function_generator)
@@ -98,7 +102,8 @@ def build_benchmark_item(
 
     # Add functions to the context until we reach the end
     while (
-        context_length + prompt_suffix_len + expected_completion_len < benchmark_length
+        context_length + function_length + prompt_suffix_len + expected_completion_len
+        < benchmark_length
     ):
         context_chunks.append(function)
         context_length += function_length
@@ -108,8 +113,12 @@ def build_benchmark_item(
     context_chunks.append(prompt_suffix)
     context_length += prompt_suffix_len
 
+    context = "".join(context_chunks)
+    assert (
+        len(tokenizer.encode(context)) <= benchmark_length
+    ), f"Context length {len(tokenizer.encode(context))} exceeds benchmark length {benchmark_length}"
     return {
-        "context": "".join(context_chunks),
+        "context": context,
         "key": key,
         "context_length": context_length,
         "target_context_length": benchmark_length,
