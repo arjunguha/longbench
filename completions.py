@@ -108,17 +108,34 @@ class Transformers:
             for (prompt, output_tensor) in zip(prompts, output_tensors)
         ]
 
+
 class DeepSpeed:
     def __init__(self, name, revision, tokenizer_name=None, world_size=1, local_rank=-1):
         assert local_rank >= 0, "local_rank must be >= 0"
         from transformers import AutoTokenizer, AutoModelForCausalLM
+        from transformers.deepspeed import HfDeepSpeedConfig
         import deepspeed
+        ds_config = {
+            "fp16": {"enabled": not torch.cuda.is_bf16_supported()},
+            "bf16": {"enabled": torch.cuda.is_bf16_supported()},
+            "zero_optimization": {
+                "stage": 3,
+                "offload_param": {
+                    "device": "cpu",
+                },
+            },
+            "train_micro_batch_size_per_gpu": 1,
+        }
+        self.hfdsc = HfDeepSpeedConfig(ds_config)
         dtype = torch.float16
         if torch.cuda.is_bf16_supported():
             dtype = torch.bfloat16
         self.model = AutoModelForCausalLM.from_pretrained(
-            name, revision=revision, torch_dtype=dtype, trust_remote_code=True, device=local_rank)
-        self.model = deepspeed.init_inference(self.model, world_size=world_size, dtype=dtype)
+            name, revision=revision, torch_dtype=dtype, trust_remote_code=True)
+        self.local_rank = local_rank
+        self.ds_engine = deepspeed.initialize(model=self.model, config_params=ds_config)[0]
+        self.ds_engine.module.eval()
+        self.model = self.ds_engine.module
         self.tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_name or name, revision=revision, padding_side="left", trust_remote_code=True)
         self.tokenizer.pad_token = "<|endoftext|>"
@@ -132,7 +149,7 @@ class DeepSpeed:
         do_sample=True,
     ):
         inputs = self.tokenizer(
-            prompts, padding=True, return_tensors="pt", return_token_type_ids=False).to("cuda")
+            prompts, padding=True, return_tensors="pt", return_token_type_ids=False).to(f"cuda:{self.local_rank}")
         with torch.no_grad():
             output = self.model.generate(
                 **inputs,
@@ -167,6 +184,7 @@ class DeepSpeed:
                 output_tensor, prompt), stop + ["<|endoftext|>"])
             for (prompt, output_tensor) in zip(prompts, output_tensors)
         ]
+
 
 def batch_inputs(input_data, num_completions, batch_size):
     batch = []
@@ -209,7 +227,8 @@ def main():
     elif args.engine == "transformers":
         engine = Transformers(args.model_name, args.revision)
     elif args.engine == "deepspeed":
-        engine = DeepSpeed(args.model_name, args.revision, world_size=args.num_gpus, local_rank=args.local_rank)
+        engine = DeepSpeed(args.model_name, args.revision,
+                           world_size=args.num_gpus, local_rank=args.local_rank)
     else:
         raise ValueError(f"Unknown engine: {args.engine}")
 
