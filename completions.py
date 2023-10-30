@@ -138,7 +138,7 @@ def main():
     parser.add_argument("--max-tokens", type=int, required=True)
     parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--temperature", type=float, default=0.2)
-    parser.add_argument("--do_sample", action="store_true", default=True)
+    parser.add_argument("--dont_sample", action="store_true", default=False)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--num_gpus", type=int, default=1)
     args = parser.parse_args()
@@ -172,7 +172,7 @@ def main():
             max_tokens=args.max_new_tokens,
             temperature=args.temperature,
             top_p=args.top_p,
-            do_sample=args.do_sample,
+            do_sample=not args.dont_sample,
             stop=["\nclass", "\ndef", "\n#", "\nif", "\nprint"]
         )
         for idx, completion in enumerate(completions):
