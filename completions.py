@@ -42,7 +42,7 @@ class VLLM:
         )
 
     def completions(
-        self, prompts: List[str], max_tokens: int, temperature: float, top_p, stop
+        self, prompts: List[str], max_tokens: int, temperature: float, top_p, stop, do_sample=True
     ):
         prompts = [prompt.strip() for prompt in prompts]
         params = SamplingParams(temperature=temperature,
@@ -68,6 +68,7 @@ class Transformers:
         max_length: int,
         temperature: float,
         top_p: float,
+        do_sample=True,
     ):
         inputs = self.tokenizer(
             prompts, padding=True, return_tensors="pt", return_token_type_ids=False).to("cuda")
@@ -78,7 +79,7 @@ class Transformers:
                 use_cache=True,
                 top_p=top_p,
                 temperature=temperature,
-                max_length=max_length,
+                max_new_tokens=max_length,
                 pad_token_id=self.tokenizer.pad_token_id
             )
         return output
@@ -90,7 +91,7 @@ class Transformers:
         return detok_hypo_str[len(prompt):]
 
     def completions(
-        self, prompts: List[str], max_tokens: int, temperature: float, top_p, stop
+        self, prompts: List[str], max_tokens: int, temperature: float, top_p, stop, do_sample=True
     ):
         prompts = [prompt.strip() for prompt in prompts]
         output_tensors = self.completion_tensors(
@@ -98,6 +99,7 @@ class Transformers:
             max_tokens,
             temperature,
             top_p,
+            do_sample=do_sample,
         )
         return [
             stop_at_stop_token(self.decode_single_output(
@@ -134,7 +136,9 @@ def main():
     parser.add_argument("--revision", type=str, default=None)
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--max-tokens", type=int, required=True)
+    parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument("--do_sample", action="store_true", default=True)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--num_gpus", type=int, default=1)
     args = parser.parse_args()
@@ -165,9 +169,10 @@ def main():
         prompts = [prompt_template(entry) for entry in batch]
         completions = engine.completions(
             prompts,
-            max_tokens=args.max_tokens,
+            max_tokens=args.max_new_tokens,
             temperature=args.temperature,
             top_p=args.top_p,
+            do_sample=args.do_sample,
             stop=["\nclass", "\ndef", "\n#", "\nif", "\nprint"]
         )
         for idx, completion in enumerate(completions):
