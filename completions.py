@@ -79,7 +79,7 @@ class Transformers:
                 use_cache=True,
                 top_p=top_p,
                 temperature=temperature,
-                max_new_tokens=max_length,
+                max_length=inputs["input_ids"].shape[1] + max_length,
                 pad_token_id=self.tokenizer.pad_token_id
             )
         return output
