@@ -116,8 +116,8 @@ class DeepSpeed:
         from transformers.deepspeed import HfDeepSpeedConfig
         import deepspeed
         ds_config = {
-            "fp16": {"enabled": not torch.cuda.is_bf16_supported()},
-            "bf16": {"enabled": torch.cuda.is_bf16_supported()},
+            "fp16": {"enabled": True},
+            "bf16": {"enabled": False},
             "zero_optimization": {
                 "stage": 3,
                 "offload_param": {
@@ -127,11 +127,8 @@ class DeepSpeed:
             "train_micro_batch_size_per_gpu": 1,
         }
         self.hfdsc = HfDeepSpeedConfig(ds_config)
-        dtype = torch.float16
-        if torch.cuda.is_bf16_supported():
-            dtype = torch.bfloat16
         self.model = AutoModelForCausalLM.from_pretrained(
-            name, revision=revision, torch_dtype=dtype, trust_remote_code=True)
+            name, revision=revision, torch_dtype=torch.float16, trust_remote_code=True)
         self.local_rank = local_rank
         self.ds_engine = deepspeed.initialize(model=self.model, config_params=ds_config)[0]
         self.ds_engine.module.eval()
