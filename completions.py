@@ -109,15 +109,16 @@ class Transformers:
         ]
 
 class DeepSpeed:
-    def __init__(self, name, revision, tokenizer_name=None, num_gpus=1):
+    def __init__(self, name, revision, tokenizer_name=None, world_size=1, local_rank=-1):
+        assert local_rank >= 0, "local_rank must be >= 0"
         from transformers import AutoTokenizer, AutoModelForCausalLM
         import deepspeed
         dtype = torch.float16
         if torch.cuda.is_bf16_supported():
             dtype = torch.bfloat16
         self.model = AutoModelForCausalLM.from_pretrained(
-            name, revision=revision, torch_dtype=dtype, trust_remote_code=True).cuda()
-        self.model = deepspeed.init_inference(self.model, world_size=num_gpus, dtype=dtype)
+            name, revision=revision, torch_dtype=dtype, trust_remote_code=True, device=local_rank)
+        self.model = deepspeed.init_inference(self.model, world_size=world_size, dtype=dtype)
         self.tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_name or name, revision=revision, padding_side="left", trust_remote_code=True)
         self.tokenizer.pad_token = "<|endoftext|>"
@@ -199,6 +200,7 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--dont_sample", action="store_true", default=False)
     parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--local_rank", type=int, default=-1)
     parser.add_argument("--num_gpus", type=int, default=1)
     args = parser.parse_args()
 
@@ -207,7 +209,7 @@ def main():
     elif args.engine == "transformers":
         engine = Transformers(args.model_name, args.revision)
     elif args.engine == "deepspeed":
-        engine = DeepSpeed(args.model_name, args.revision, num_gpus=args.num_gpus)
+        engine = DeepSpeed(args.model_name, args.revision, world_size=args.num_gpus, local_rank=args.local_rank)
     else:
         raise ValueError(f"Unknown engine: {args.engine}")
 
