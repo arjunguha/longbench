@@ -30,7 +30,7 @@ class Transformers:
         if torch.cuda.is_bf16_supported():
             dtype = torch.bfloat16
         self.model = AutoModelForCausalLM.from_pretrained(
-            name, revision=revision, torch_dtype=dtype, trust_remote_code=True).cuda()
+            name, revision=revision, torch_dtype=dtype, trust_remote_code=True, device_map="auto")
         self.tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_name or name, revision=revision, padding_side="left", trust_remote_code=True)
         self.tokenizer.pad_token = "<|endoftext|>"
