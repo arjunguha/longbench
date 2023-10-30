@@ -1,7 +1,5 @@
 import argparse
 from typing import List
-from vllm import LLM, SamplingParams
-from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from tqdm import tqdm
 import pandas as pd
@@ -28,6 +26,7 @@ def stop_at_stop_token(decoded_string, stop_tokens):
 # Copied from MultiPL-E
 class VLLM:
     def __init__(self, name, revision, tokenizer_name=None, num_gpus=1):
+        from vllm import LLM
         dtype = "float16"
         if torch.cuda.is_bf16_supported():
             dtype = "bfloat16"
@@ -44,6 +43,7 @@ class VLLM:
     def completions(
         self, prompts: List[str], max_tokens: int, temperature: float, top_p, stop, do_sample=True
     ):
+        from vllm import SamplingParams
         prompts = [prompt.strip() for prompt in prompts]
         params = SamplingParams(temperature=temperature,
                                 top_p=top_p, max_tokens=max_tokens, stop=stop)
@@ -53,6 +53,7 @@ class VLLM:
 
 class Transformers:
     def __init__(self, name, revision, tokenizer_name=None):
+        from transformers import AutoTokenizer, AutoModelForCausalLM
         dtype = torch.float16
         if torch.cuda.is_bf16_supported():
             dtype = torch.bfloat16
@@ -75,7 +76,7 @@ class Transformers:
         with torch.no_grad():
             output = self.model.generate(
                 **inputs,
-                do_sample=True,
+                do_sample=do_sample,
                 use_cache=True,
                 top_p=top_p,
                 temperature=temperature,
@@ -107,6 +108,64 @@ class Transformers:
             for (prompt, output_tensor) in zip(prompts, output_tensors)
         ]
 
+class DeepSpeed:
+    def __init__(self, name, revision, tokenizer_name=None, num_gpus=1):
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        import deepspeed
+        dtype = torch.float16
+        if torch.cuda.is_bf16_supported():
+            dtype = torch.bfloat16
+        self.model = AutoModelForCausalLM.from_pretrained(
+            name, revision=revision, torch_dtype=dtype, trust_remote_code=True).cuda()
+        self.model = deepspeed.init_inference(self.model, world_size=num_gpus, dtype=dtype)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer_name or name, revision=revision, padding_side="left", trust_remote_code=True)
+        self.tokenizer.pad_token = "<|endoftext|>"
+
+    def completion_tensors(
+        self,
+        prompts: list,
+        max_length: int,
+        temperature: float,
+        top_p: float,
+        do_sample=True,
+    ):
+        inputs = self.tokenizer(
+            prompts, padding=True, return_tensors="pt", return_token_type_ids=False).to("cuda")
+        with torch.no_grad():
+            output = self.model.generate(
+                **inputs,
+                do_sample=do_sample,
+                use_cache=True,
+                top_p=top_p,
+                temperature=temperature,
+                max_length=inputs["input_ids"].shape[1] + max_length,
+                pad_token_id=self.tokenizer.pad_token_id
+            )
+        return output
+
+    def decode_single_output(self, output_tensor, prompt):
+        detok_hypo_str = self.tokenizer.decode(
+            output_tensor, clean_up_tokenization_spaces=False, skip_special_tokens=True,
+        )
+        return detok_hypo_str[len(prompt):]
+
+    def completions(
+        self, prompts: List[str], max_tokens: int, temperature: float, top_p, stop, do_sample=True
+    ):
+        prompts = [prompt.strip() for prompt in prompts]
+        output_tensors = self.completion_tensors(
+            prompts,
+            max_tokens,
+            temperature,
+            top_p,
+            do_sample=do_sample,
+        )
+        return [
+            stop_at_stop_token(self.decode_single_output(
+                output_tensor, prompt), stop + ["<|endoftext|>"])
+            for (prompt, output_tensor) in zip(prompts, output_tensors)
+        ]
 
 def batch_inputs(input_data, num_completions, batch_size):
     batch = []
@@ -147,6 +206,8 @@ def main():
         engine = VLLM(args.model_name, args.revision, num_gpus=args.num_gpus)
     elif args.engine == "transformers":
         engine = Transformers(args.model_name, args.revision)
+    elif args.engine == "deepspeed":
+        engine = DeepSpeed(args.model_name, args.revision, num_gpus=args.num_gpus)
     else:
         raise ValueError(f"Unknown engine: {args.engine}")
 
