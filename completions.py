@@ -6,24 +6,11 @@ import pandas as pd
 from pathlib import Path
 import os
 
-from typing import cast, List
+from typing import List
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-import torch.nn as nn
-import torch.nn.functional as F
-
-from torch.distributed._tensor import (
-    DeviceMesh,
-    distribute_module,
-    distribute_tensor,
-    DTensor,
-    Replicate,
-    Shard,
-)
-from torch.distributed._tensor.placement_types import Placement
-from torch.distributed.tensor.parallel import PairwiseParallel, parallelize_module
 
 
 # Copied from MultiPL-E
@@ -73,6 +60,8 @@ class VLLM:
 
 class TransformersDistributed:
     def __init__(self, name, revision, tokenizer_name=None, world_size=1, local_rank=0):
+        from torch.distributed._tensor import DeviceMesh
+
         from transformers import AutoTokenizer, AutoModelForCausalLM
         self.local_rank = local_rank
         self.world_size = world_size
@@ -102,6 +91,7 @@ class TransformersDistributed:
         top_p: float,
         do_sample=True,
     ):
+        from torch.distributed._tensor import distribute_tensor
         inputs = self.tokenizer(
             prompts, padding=True, return_tensors="pt", return_token_type_ids=False)
         inputs["input_ids"] = distribute_tensor(inputs["input_ids"], self.mesh)
@@ -227,7 +217,8 @@ def main(local_rank, args):
     elif args.engine == "transformers":
         engine = Transformers(args.model_name, args.revision)
     elif args.engine == "dtensor":
-        engine = TransformersDistributed(args.model_name, args.revision, world_size=args.num_gpus, local_rank=local_rank)
+        engine = TransformersDistributed(
+            args.model_name, args.revision, world_size=args.num_gpus, local_rank=local_rank)
     else:
         raise ValueError(f"Unknown engine: {args.engine}")
 
