@@ -221,31 +221,13 @@ def prompt_template(entry):
     return f"{p}\n\n# A complete test suite for {f}:\ndef test_{f}():\n    assert {f}("
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--num-completions", type=int, required=True)
-    parser.add_argument("--model-name", type=str, required=True)
-    parser.add_argument("--engine", type=str, default="vllm", choices=[
-        "vllm", "transformers", "dtensor"])
-    parser.add_argument("--revision", type=str, default=None)
-    parser.add_argument("--batch-size", type=int, required=True)
-    parser.add_argument("--max-tokens", type=int, required=True)
-    parser.add_argument("--max-new-tokens", type=int, default=1024)
-    parser.add_argument("--temperature", type=float, default=0.2)
-    parser.add_argument("--dont_sample", action="store_true", default=False)
-    parser.add_argument("--top-p", type=float, default=0.95)
-    parser.add_argument("--local_rank", type=int, default=0)
-    parser.add_argument("--num_gpus", type=int, default=1)
-    args = parser.parse_args()
-
+def main(local_rank, args):
     if args.engine == "vllm":
         engine = VLLM(args.model_name, args.revision, num_gpus=args.num_gpus)
     elif args.engine == "transformers":
         engine = Transformers(args.model_name, args.revision)
     elif args.engine == "dtensor":
-        engine = TransformersDistributed(args.model_name, args.revision)
+        engine = TransformersDistributed(args.model_name, args.revision, world_size=args.num_gpus, local_rank=local_rank)
     else:
         raise ValueError(f"Unknown engine: {args.engine}")
 
@@ -278,10 +260,35 @@ def main():
             task_id = batch[idx]["task_id"]
             output_data[task_id]["completions"].append(completion)
 
-    if args.local_rank == 0:
+    if local_rank == 0:
         pd.DataFrame(output_data.values()).to_json(
             args.output, orient="records", lines=True)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--num-completions", type=int, required=True)
+    parser.add_argument("--model-name", type=str, required=True)
+    parser.add_argument("--engine", type=str, default="vllm", choices=[
+        "vllm", "transformers", "dtensor"])
+    parser.add_argument("--revision", type=str, default=None)
+    parser.add_argument("--batch-size", type=int, required=True)
+    parser.add_argument("--max-tokens", type=int, required=True)
+    parser.add_argument("--max-new-tokens", type=int, default=1024)
+    parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument("--dont_sample", action="store_true", default=False)
+    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--num_gpus", type=int, default=1)
+    args = parser.parse_args()
+
+    if args.engine == "dtensor":
+        mp.spawn(
+            main,
+            args=(args,),
+            nprocs=args.num_gpus,
+            join=True,
+        )
+    else:
+        main(0, args)
