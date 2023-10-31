@@ -4,6 +4,26 @@ import torch
 from tqdm import tqdm
 import pandas as pd
 from pathlib import Path
+import os
+
+from typing import cast, List
+
+import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
+import torch.nn as nn
+import torch.nn.functional as F
+
+from torch.distributed._tensor import (
+    DeviceMesh,
+    distribute_module,
+    distribute_tensor,
+    DTensor,
+    Replicate,
+    Shard,
+)
+from torch.distributed._tensor.placement_types import Placement
+from torch.distributed.tensor.parallel import PairwiseParallel, parallelize_module
 
 
 # Copied from MultiPL-E
@@ -51,6 +71,80 @@ class VLLM:
         return [stop_at_stop_token(o.outputs[0].text, stop) for o in outputs]
 
 
+class TransformersDistributed:
+    def __init__(self, name, revision, tokenizer_name=None, world_size=1, local_rank=0):
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        self.local_rank = local_rank
+        self.world_size = world_size
+
+        torch.cuda.set_device(local_rank)
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = "12355"
+        dist.init_process_group(
+            backend="nccl", rank=local_rank, world_size=world_size)
+        self.mesh = DeviceMesh("cuda", list(range(world_size)))
+
+        if self.local_rank == 0:
+            dtype = torch.float16
+            if torch.cuda.is_bf16_supported():
+                dtype = torch.bfloat16
+            self.model = AutoModelForCausalLM.from_pretrained(
+                name, revision=revision, torch_dtype=dtype, trust_remote_code=True).cuda()
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                tokenizer_name or name, revision=revision, padding_side="left", trust_remote_code=True)
+            self.tokenizer.pad_token = "<|endoftext|>"
+
+    def completion_tensors(
+        self,
+        prompts: list,
+        max_length: int,
+        temperature: float,
+        top_p: float,
+        do_sample=True,
+    ):
+        inputs = self.tokenizer(
+            prompts, padding=True, return_tensors="pt", return_token_type_ids=False)
+        inputs["input_ids"] = distribute_tensor(inputs["input_ids"], self.mesh)
+        with torch.no_grad():
+            output = self.model.generate(
+                **inputs,
+                do_sample=do_sample,
+                use_cache=True,
+                top_p=top_p,
+                temperature=temperature,
+                max_length=inputs["input_ids"].shape[1] + max_length,
+                pad_token_id=self.tokenizer.pad_token_id
+            )
+        return output
+
+    def decode_single_output(self, output_tensor, prompt):
+        detok_hypo_str = self.tokenizer.decode(
+            output_tensor, clean_up_tokenization_spaces=False, skip_special_tokens=True,
+        )
+        return detok_hypo_str[len(prompt):]
+
+    def completions(
+        self, prompts: List[str], max_tokens: int, temperature: float, top_p, stop, do_sample=True
+    ):
+        if self.local_rank == 0:
+            prompts = [prompt.strip() for prompt in prompts]
+            output_tensors = self.completion_tensors(
+                prompts,
+                max_tokens,
+                temperature,
+                top_p,
+                do_sample=do_sample,
+            )
+            return [
+                stop_at_stop_token(self.decode_single_output(
+                    output_tensor, prompt), stop + ["<|endoftext|>"])
+                for (prompt, output_tensor) in zip(prompts, output_tensors)
+            ]
+        else:
+            dist.barrier()
+            return []
+
+
 class Transformers:
     def __init__(self, name, revision, tokenizer_name=None):
         from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -73,80 +167,6 @@ class Transformers:
     ):
         inputs = self.tokenizer(
             prompts, padding=True, return_tensors="pt", return_token_type_ids=False).to("cuda")
-        with torch.no_grad():
-            output = self.model.generate(
-                **inputs,
-                do_sample=do_sample,
-                use_cache=True,
-                top_p=top_p,
-                temperature=temperature,
-                max_length=inputs["input_ids"].shape[1] + max_length,
-                pad_token_id=self.tokenizer.pad_token_id
-            )
-        return output
-
-    def decode_single_output(self, output_tensor, prompt):
-        detok_hypo_str = self.tokenizer.decode(
-            output_tensor, clean_up_tokenization_spaces=False, skip_special_tokens=True,
-        )
-        return detok_hypo_str[len(prompt):]
-
-    def completions(
-        self, prompts: List[str], max_tokens: int, temperature: float, top_p, stop, do_sample=True
-    ):
-        prompts = [prompt.strip() for prompt in prompts]
-        output_tensors = self.completion_tensors(
-            prompts,
-            max_tokens,
-            temperature,
-            top_p,
-            do_sample=do_sample,
-        )
-        return [
-            stop_at_stop_token(self.decode_single_output(
-                output_tensor, prompt), stop + ["<|endoftext|>"])
-            for (prompt, output_tensor) in zip(prompts, output_tensors)
-        ]
-
-
-class DeepSpeed:
-    def __init__(self, name, revision, tokenizer_name=None, world_size=1, local_rank=-1):
-        assert local_rank >= 0, "local_rank must be >= 0"
-        from transformers import AutoTokenizer, AutoModelForCausalLM
-        from transformers.deepspeed import HfDeepSpeedConfig
-        import deepspeed
-        ds_config = {
-            "fp16": {"enabled": True},
-            "bf16": {"enabled": False},
-            "zero_optimization": {
-                "stage": 3,
-                "offload_param": {
-                    "device": "cpu",
-                },
-            },
-            "train_micro_batch_size_per_gpu": 1,
-        }
-        self.hfdsc = HfDeepSpeedConfig(ds_config)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            name, revision=revision, torch_dtype=torch.float16, trust_remote_code=True)
-        self.local_rank = local_rank
-        self.ds_engine = deepspeed.initialize(model=self.model, config_params=ds_config)[0]
-        self.ds_engine.module.eval()
-        self.model = self.ds_engine.module
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_name or name, revision=revision, padding_side="left", trust_remote_code=True)
-        self.tokenizer.pad_token = "<|endoftext|>"
-
-    def completion_tensors(
-        self,
-        prompts: list,
-        max_length: int,
-        temperature: float,
-        top_p: float,
-        do_sample=True,
-    ):
-        inputs = self.tokenizer(
-            prompts, padding=True, return_tensors="pt", return_token_type_ids=False).to(f"cuda:{self.local_rank}")
         with torch.no_grad():
             output = self.model.generate(
                 **inputs,
@@ -215,7 +235,7 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--dont_sample", action="store_true", default=False)
     parser.add_argument("--top-p", type=float, default=0.95)
-    parser.add_argument("--local_rank", type=int, default=-1)
+    parser.add_argument("--local_rank", type=int, default=0)
     parser.add_argument("--num_gpus", type=int, default=1)
     args = parser.parse_args()
 
@@ -223,9 +243,8 @@ def main():
         engine = VLLM(args.model_name, args.revision, num_gpus=args.num_gpus)
     elif args.engine == "transformers":
         engine = Transformers(args.model_name, args.revision)
-    elif args.engine == "deepspeed":
-        engine = DeepSpeed(args.model_name, args.revision,
-                           world_size=args.num_gpus, local_rank=args.local_rank)
+    elif args.engine == "dtensor":
+        engine = TransformersDistributed(args.model_name, args.revision)
     else:
         raise ValueError(f"Unknown engine: {args.engine}")
 
@@ -258,8 +277,9 @@ def main():
             task_id = batch[idx]["task_id"]
             output_data[task_id]["completions"].append(completion)
 
-    pd.DataFrame(output_data.values()).to_json(
-        args.output, orient="records", lines=True)
+    if args.local_rank == 0:
+        pd.DataFrame(output_data.values()).to_json(
+            args.output, orient="records", lines=True)
 
 
 if __name__ == "__main__":
