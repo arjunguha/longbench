@@ -227,7 +227,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--num-completions", type=int, required=True)
     parser.add_argument("--model-name", type=str, required=True)
-    parser.add_argument("--engine", type=str, default="vllm")
+    parser.add_argument("--engine", type=str, default="vllm", choices=[
+        "vllm", "transformers", "dtensor"])
     parser.add_argument("--revision", type=str, default=None)
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--max-tokens", type=int, required=True)
