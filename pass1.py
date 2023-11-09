@@ -22,7 +22,6 @@ def test_suite_success_rate(executions):
     return sum(1 for execution in executions if execution["exit_code"] == 0) / n
 
 
-
 def mean(lst):
     return sum(lst) / len(lst)
 
@@ -56,17 +55,40 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", help="input file", required=True)
+    parser.add_argument(
+        "--latex", help="output latex table", action="store_true")
     args = parser.parse_args()
 
     ds = datasets.load_dataset("json", data_files=args.input)["train"]
     bins = bin_problems(ds["task_id"])
-    buf = "Length,Kind,Test Suite Success Rate,Mean Mutant Catch Rate\n"
+    #  \multicolumn{5}{c}{repo\_context\_depth\_first\_8k\_32k} \\ \midrule
+    #  & 0 & first  & 0.28 & 0.2225 \\
+    #  & 0 & second  & 0.28 & 0.25 \\
+    #  & 8000 & first  & 0.14 & 0.1233 \\
+    #  & 8000 & second  & 0.36 & 0.3183 \\
+    #  & 16000 & first & 0.22 & 0.16 \\
+    #  & 16000 & second  & 0.14 & 0.115 \\
+    #  & 32000 & first  & 0.1 & 0.1 \\
+    #  & 32000 & second & 0.2 & 0.1667 \\ \midrule
+    if args.latex:
+        name = args.input.split("/")[-1].split(".")[0]
+        buf = "\\multicolumn{5}{c}{" + name + "} \\\\ \\midrule\n"
+    else:
+        buf = "Length,Kind,Test Suite Success Rate,Mean Mutant Catch Rate\n"
+
     for (l, kind), b in bins.items():
         exs = ds.filter(lambda x: x["task_id"] in b)
         avg_test_suite_success_rate = mean(
             list(map(test_suite_success_rate, exs["executions"])))
         avg_mean_mutant_catch_rate = mean(
             list(map(mean_mutant_catch_rate, exs["executions"])))
-        buf += f"{l},{kind},{avg_test_suite_success_rate},{avg_mean_mutant_catch_rate}\n"
+        if args.latex:
+            rounded_avg_test_suite_success_rate = round(
+                avg_test_suite_success_rate, 2)
+            rounded_avg_mean_mutant_catch_rate = round(
+                avg_mean_mutant_catch_rate, 2)
+            buf += f"& {l} & {kind} & {rounded_avg_test_suite_success_rate} & {rounded_avg_mean_mutant_catch_rate} \\\\\n"
+        else:
+            buf += f"{l},{kind},{avg_test_suite_success_rate},{avg_mean_mutant_catch_rate}\n"
 
     print(buf)
