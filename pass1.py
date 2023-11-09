@@ -71,7 +71,7 @@ if __name__ == "__main__":
     #  & 32000 & first  & 0.1 & 0.1 \\
     #  & 32000 & second & 0.2 & 0.1667 \\ \midrule
     if args.latex:
-        name = args.input.split("/")[-1].split(".")[0]
+        name = args.input.split("/")[-1].split(".")[0].replace("_", "\\_")
         buf = "\\multicolumn{5}{c}{" + name + "} \\\\ \\midrule\n"
     else:
         buf = "Length,Kind,Test Suite Success Rate,Mean Mutant Catch Rate\n"
