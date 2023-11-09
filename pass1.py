@@ -91,4 +91,8 @@ if __name__ == "__main__":
         else:
             buf += f"{l},{kind},{avg_test_suite_success_rate},{avg_mean_mutant_catch_rate}\n"
 
+    if args.latex:
+        buf = buf[:-1]
+        buf += " \\midrule\n"
+
     print(buf)
