@@ -70,9 +70,10 @@ if __name__ == "__main__":
     #  & 16000 & second  & 0.14 & 0.115 \\
     #  & 32000 & first  & 0.1 & 0.1 \\
     #  & 32000 & second & 0.2 & 0.1667 \\ \midrule
+    prev_rates = None # used for latex
     if args.latex:
-        name = args.input.split("/")[-1].split(".")[0].replace("_", "\\_")
-        buf = "\\multicolumn{5}{c}{" + name + "} \\\\ \\midrule\n"
+        name = args.input.split("/")[-1].split(".")[0].replace("_", "\\_").replace("_results", "")
+        buf = "\\multicolumn{6}{c}{" + name + "} \\\\ \\midrule\n"
     else:
         buf = "Length,Kind,Test Suite Success Rate,Mean Mutant Catch Rate\n"
 
@@ -87,7 +88,13 @@ if __name__ == "__main__":
                 avg_test_suite_success_rate, 2)
             rounded_avg_mean_mutant_catch_rate = round(
                 avg_mean_mutant_catch_rate, 2)
-            buf += f"& {l} & {kind} & {rounded_avg_test_suite_success_rate} & {rounded_avg_mean_mutant_catch_rate} \\\\\n"
+            if prev_rates:
+                assert kind == "second half"
+                buf += f"& {l} & {prev_rates[0]} & {rounded_avg_test_suite_success_rate} & {prev_rates[1]} & {rounded_avg_mean_mutant_catch_rate} \\\\\n"
+                prev_rates = None
+            else:
+                assert kind == "first half"
+                prev_rates = (rounded_avg_test_suite_success_rate, rounded_avg_mean_mutant_catch_rate)
         else:
             buf += f"{l},{kind},{avg_test_suite_success_rate},{avg_mean_mutant_catch_rate}\n"
 
