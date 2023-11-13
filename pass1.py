@@ -72,7 +72,7 @@ if __name__ == "__main__":
     #  & 32000 & second & 0.2 & 0.1667 \\ \midrule
     prev_rates = None # used for latex
     if args.latex:
-        name = args.input.split("/")[-1].split(".")[0].replace("_", "\\_").replace("_results", "")
+        name = args.input.split("/")[-1].split(".")[0].replace("_results", "").replace("_", "\\_")
         buf = "\\multicolumn{6}{c}{" + name + "} \\\\ \\midrule\n"
     else:
         buf = "Length,Kind,Test Suite Success Rate,Mean Mutant Catch Rate\n"
