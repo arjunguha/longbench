@@ -136,7 +136,7 @@ class TransformersDistributed:
 
 
 class Transformers:
-    def __init__(self, name, revision, tokenizer_name=None):
+    def __init__(self, name, revision, tokenizer_name=None, fa2=False):
         from transformers import AutoTokenizer, AutoModelForCausalLM
         dtype = torch.float16
         if torch.cuda.is_bf16_supported():
@@ -144,7 +144,7 @@ class Transformers:
         self.model = AutoModelForCausalLM.from_pretrained(
             name, revision=revision, torch_dtype=dtype, trust_remote_code=True).cuda()
         self.tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_name or name, revision=revision, padding_side="left", trust_remote_code=True)
+            tokenizer_name or name, revision=revision, padding_side="left", trust_remote_code=True, use_flash_attention_2=fa2)
         self.tokenizer.pad_token = "<|endoftext|>"
 
     def completion_tensors(
@@ -215,7 +215,7 @@ def main(local_rank, args):
     if args.engine == "vllm":
         engine = VLLM(args.model_name, args.revision, num_gpus=args.num_gpus)
     elif args.engine == "transformers":
-        engine = Transformers(args.model_name, args.revision)
+        engine = Transformers(args.model_name, args.revision, fa2=args.fa2)
     elif args.engine == "dtensor":
         engine = TransformersDistributed(
             args.model_name, args.revision, world_size=args.num_gpus, local_rank=local_rank)
@@ -265,6 +265,7 @@ if __name__ == "__main__":
     parser.add_argument("--engine", type=str, default="vllm", choices=[
         "vllm", "transformers", "dtensor"])
     parser.add_argument("--revision", type=str, default=None)
+    parser.add_argument("--fa2", action="store_true")
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--max-tokens", type=int, required=True)
     parser.add_argument("--max-new-tokens", type=int, default=1024)
